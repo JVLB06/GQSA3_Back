@@ -15,6 +15,7 @@ class LoginController:
         else:
             request.Cause = None
             request.Document = None
+            request.Address = None
             if SignInHelper().Cadastrate(request):
                 return {"message": "Donor login successful", "user": request.Name}
             else: 
