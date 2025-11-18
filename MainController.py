@@ -1,8 +1,12 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 import uvicorn
 from src.Controller.LoginController import LoginController
+from src.Helper.SecurityHelper import add_security_middleware
 
 app = FastAPI()
+
+# Adiciona o middleware de segurança
+add_security_middleware(app)
 
 # Rotas principais
 @app.get("/")
