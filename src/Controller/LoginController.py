@@ -10,7 +10,9 @@ class LoginController:
     @router.post("/cadastrate")
     async def cadastrate(request: CadastrateModel.CadastrateModel):
         if request.IsReceiver == "receptor":
-            if SignInHelper().Cadastrate(request):
+            if SignInHelper().ValidateAddress(request.Address) == False:
+                raise HTTPException(status_code=400, detail="Invalid Address")
+            elif SignInHelper().Cadastrate(request):
                 return {"message": "Receiver login successful", "user": request.Name}
             else:
                 raise HTTPException(status_code=400, detail="Cadastration failed")
@@ -29,7 +31,10 @@ class LoginController:
     async def login(request: LoginModel.LoginModel):
         if SignInHelper().SignIn(request):
             # Gera token após login bem-sucedido
-            access_token = TokenHelper().create_access_token(data={"sub": request.Username})
+            UserInfo = SignInHelper().GetKindOfUser(str(request.Username))
+            if not UserInfo:
+                raise HTTPException(status_code=404, detail="Error retrieving user type")
+            access_token = TokenHelper().create_access_token(data={"sub": UserInfo.KindOfUser})
             return {"message": "Login successful", "user": request.Username, "access_token": access_token, "token_type": "bearer"}
         else:
             raise HTTPException(status_code=401, detail="Invalid credentials")
