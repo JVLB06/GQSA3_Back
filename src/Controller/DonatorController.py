@@ -1,6 +1,8 @@
-from fastapi import APIRouter, HTTPException, Request, Depends
+from fastapi import APIRouter, HTTPException, Depends
 from src.Model.DeactivateModel import DeactivateModel 
 from src.Model.AddFavoriteModel import AddFavoriteModel 
+from src.Model.DonationModel import DonationModel
+from src.Helper.DonationsHelper import DonationsHelper
 from src.Helper.ReceiversHelper import ReceiversHelper
 from src.Helper.SecurityHelper import get_current_user_from_token
 from src.Helper.ConnectionHelper import ConnectionHelper 
@@ -104,3 +106,17 @@ class DonatorController:
             raise HTTPException(status_code=403, detail="Unauthorized: Only donators can view favorites")
 
         return FavoriteHelper().list_favorites(user_data.UserId)
+    
+    @router.post("/add_donation")
+    async def add_donation(donation_info: DonationModel, user_email: str = Depends(get_current_user_from_token)):
+        # Buscar dados do usuário logado via email (do token)
+        signin_helper = SignInHelper()
+        user_data = signin_helper.GetKindOfUser(user_email)
+    
+        if user_data.KindOfUser != 'doador':
+            raise HTTPException(status_code=403, detail="Unauthorized: Only donators can add donations")
+
+        donation_info.DonorId = user_data.UserId
+
+        donations_helper = DonationsHelper()
+        return donations_helper.add_donations(donation_info)

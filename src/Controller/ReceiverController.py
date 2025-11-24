@@ -3,6 +3,8 @@ from datetime import datetime
 from src.Model.PixModel import PixModel
 from src.Model.PixDeleteModel import PixDeleteModel
 from src.Model.DeactivateModel import DeactivateModel  
+from src.Model.DonationModel import DonationModel
+from src.Helper.DonationsHelper import DonationsHelper
 from src.Helper.PixHelper import PixHelper as ph
 from src.Helper.SecurityHelper import get_current_user_from_token
 from src.Helper.ConnectionHelper import ConnectionHelper  
@@ -81,3 +83,19 @@ class ReceiverController:
             raise HTTPException(status_code=500, detail=f"Error deactivating receiver: {e}")
         finally:
             conn_helper.CloseConnection(connection)
+
+    @router.get("/list_donations_received")
+    async def list_donations_received(user_email: str = Depends(get_current_user_from_token)):
+        # Buscar dados do usuário logado via email (do token)
+        signin_helper = SignInHelper()
+        user_data = signin_helper.GetKindOfUser(user_email)
+
+        if user_data.KindOfUser != 'receptor':
+            raise HTTPException(status_code=403, detail="Unauthorized: Only receivers can access this endpoint")
+
+        try:
+            donations_helper = DonationsHelper()
+            donations = donations_helper.list_donations_received(user_data.UserId)
+            return {"donations": donations}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error fetching donations: {e}")
