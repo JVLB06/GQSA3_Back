@@ -6,6 +6,9 @@ from src.Controller.ReceiverController import ReceiverController
 from src.Helper.SecurityHelper import get_current_user_from_token
 
 
+from src.Model.ProductModel import ProductModel
+from fastapi import FastAPI, Depends
+from unittest.mock import MagicMock, patch
 # ===================== FAKES GENÉRICOS =====================
 
 
@@ -335,3 +338,169 @@ def test_deactivate_receiver_user_not_found_or_inactive(monkeypatch):
     assert response.status_code == 404
     data = response.json()
     assert data["detail"] == "User not found or already inactive"
+
+
+class MockUser:
+    """Simula o objeto retornado por SignInHelper.GetKindOfUser."""
+    def __init__(self, kind_of_user, user_id):
+        self.KindOfUser = kind_of_user
+        self.UserId = user_id
+
+# -------------------------- FIXTURES --------------------------
+
+@pytest.fixture(scope="module") 
+def app_client():
+    """Cria e retorna o TestClient para a aplicação FastAPI."""
+    app = FastAPI()
+    # Inclui o router do Controller que está sendo testado
+    app.include_router(ReceiverController.router)
+    return TestClient(app)
+
+@pytest.fixture
+def product_data():
+    """Dados de produto válidos para a criação/atualização."""
+    return {
+        "name": "Bola de Futebol",
+        "description": "Bola para doação",
+        "value": 120.00
+    }
+
+# -------------------------- TESTES --------------------------
+
+def test_get_product_details_success(app_client, mocker):
+    """Testa a busca (Read) de um produto existente."""
+    
+    # Mock para simular o ProductModel retornado pelo Helper
+    mock_product = ProductModel(
+        productId=5, causeId=42, name="Caneta", description="Caneta azul", value=2.50
+    )
+    
+    # Substitui o Helper real por um mock que retorna nosso objeto
+    mocker.patch(
+        'src.Controller.ReceiverController.ProductHelper.get_product_by_id',
+        return_value=mock_product
+    )
+    
+    response = app_client.get("/receiver/product/5")
+    
+    assert response.status_code == 200
+    assert response.json()['name'] == "Caneta"
+    # Note: O valor é retornado como string ou float, dependendo da serialização do FastAPI.
+    # O teste deve ser flexível para aceitar 2.5 ou 2.50
+    assert float(response.json()['value']) == 2.50 
+
+
+def test_post_create_product_success(app_client, mocker, product_data):
+    """Testa a criação (Create) com usuário 'receptor' autenticado."""
+    
+    # 1. Mocka o SigninHelper para autenticação como 'receptor'
+    mocker.patch(
+        'src.Controller.ReceiverController.SignInHelper.GetKindOfUser',
+        return_value=MockUser(kind_of_user='receptor', user_id=42)
+    )
+    
+    # 2. Mocka o ProductHelper para simular a criação (retorna o ID)
+    mock_create = mocker.patch(
+        'src.Controller.ReceiverController.ProductHelper.create_product',
+        return_value=15
+    )
+    
+    # 3. Mocka a Dependência de Token para simular o usuário logado
+    app_client.app.dependency_overrides[get_current_user_from_token] = lambda: 'test@example.com'
+    
+    response = app_client.post("/receiver/create_product", json=product_data)
+
+    # Limpa a injeção de dependência após o teste
+    app_client.app.dependency_overrides = {} 
+
+    assert response.status_code == 200
+    assert response.json()['productId'] == 15
+    
+    # Verifica se o ID de segurança (causeId) foi injetado corretamente (42)
+    # A chamada deve ser: create_product(product_model, user_id)
+    product_model_sent = mock_create.call_args[0][0]
+    assert product_model_sent.causeId == 42
+
+
+def test_post_create_product_unauthorized(app_client, mocker, product_data):
+    """Testa o acesso negado para usuário não-receptor."""
+    
+    # 1. Mocka o SigninHelper para autenticação como 'doador'
+    mocker.patch(
+        'src.Controller.ReceiverController.SignInHelper.GetKindOfUser',
+        return_value=MockUser(kind_of_user='doador', user_id=10)
+    )
+
+    # 2. Mocka a Dependência de Token
+    app_client.app.dependency_overrides[get_current_user_from_token] = lambda: 'doador@example.com'
+    
+    response = app_client.post("/receiver/create_product", json=product_data)
+    
+    app_client.app.dependency_overrides = {} 
+    
+    assert response.status_code == 403
+    assert "Only receivers can create products" in response.json()['detail']
+
+
+def test_put_update_product_success(app_client, mocker):
+    """Testa a atualização (Update) de produto com sucesso."""
+    
+    update_data = {
+        "productId": 5, 
+        "name": "Updated Item", 
+        "description": "Nova Descrição", 
+        "value": 50.00
+    }
+    
+    # 1. Mock Auth como 'receptor'
+    mocker.patch(
+        'src.Controller.ReceiverController.SignInHelper.GetKindOfUser',
+        return_value=MockUser(kind_of_user='receptor', user_id=42)
+    )
+    
+    # 2. Mock Helper para simular sucesso (retorna True)
+    mock_update = mocker.patch(
+        'src.Controller.ReceiverController.ProductHelper.update_product',
+        return_value=True
+    )
+    
+    # 3. Mock Token Dependency
+    app_client.app.dependency_overrides[get_current_user_from_token] = lambda: 'test@example.com'
+    
+    response = app_client.put("/receiver/update_product", json=update_data)
+    
+    app_client.app.dependency_overrides = {} 
+
+    assert response.status_code == 200
+    assert response.json() == {"message": "Product updated successfully"}
+    
+    # O Controller deve injetar o user_id no causeId do Model antes de chamar o Helper
+    product_model_sent = mock_update.call_args[0][0]
+    assert product_model_sent.causeId == 42
+
+
+def test_put_update_product_unauthorized_role(app_client, mocker):
+    """Testa atualização negada para usuário sem permissão."""
+    
+    update_data = {
+        "productId": 5, 
+        "name": "Updated Item", 
+        "description": "Desc", 
+        "value": 50.00
+    }
+    
+    # 1. Mock Auth como 'doador'
+    mocker.patch(
+        'src.Controller.ReceiverController.SignInHelper.GetKindOfUser',
+        return_value=MockUser(kind_of_user='doador', user_id=10)
+    )
+    
+    # 2. Mock Token Dependency
+    app_client.app.dependency_overrides[get_current_user_from_token] = lambda: 'doador@example.com'
+    
+    response = app_client.put("/receiver/update_product", json=update_data)
+    
+    app_client.app.dependency_overrides = {} 
+    
+    assert response.status_code == 403
+    assert "Only receivers can update products" in response.json()['detail']    
