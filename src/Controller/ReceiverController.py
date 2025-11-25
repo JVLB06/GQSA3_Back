@@ -7,6 +7,8 @@ from src.Helper.PixHelper import PixHelper as ph
 from src.Helper.SecurityHelper import get_current_user_from_token
 from src.Helper.ConnectionHelper import ConnectionHelper  
 from src.Helper.SignInHelper import SignInHelper  
+from src.Model.ProductModel import ProductModel
+from src.Helper.ProductHelper import ProductHelper
 
 class ReceiverController:
     
@@ -81,3 +83,32 @@ class ReceiverController:
             raise HTTPException(status_code=500, detail=f"Error deactivating receiver: {e}")
         finally:
             conn_helper.CloseConnection(connection)
+
+    @router.post("/create_product")
+    async def create_product(request: ProductModel, user: str = Depends(get_current_user_from_token)):
+        # Validação: Apenas 'recebedor' pode criar produtos
+        # (Ajuste essa validação se o seu token retornar o email em vez do tipo, igual ao 'deactivate')
+        if user != "recebedor":
+             raise HTTPException(status_code=403, detail="Unauthorized access: Only receivers can create products")
+
+        helper = ProductHelper()
+        new_id = helper.create_product(request)
+
+        if new_id:
+            return {"message": "Product created successfully", "productId": new_id}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to create product")
+
+    @router.put("/update_product")
+    async def update_product(request: ProductModel, user: str = Depends(get_current_user_from_token)):
+        # Validação: Apenas 'recebedor' pode alterar produtos
+        if user != "recebedor":
+             raise HTTPException(status_code=403, detail="Unauthorized access: Only receivers can update products")
+
+        helper = ProductHelper()
+        success = helper.update_product(request)
+
+        if success:
+            return {"message": "Product updated successfully"}
+        else:
+            raise HTTPException(status_code=404, detail="Product not found or unauthorized update")
