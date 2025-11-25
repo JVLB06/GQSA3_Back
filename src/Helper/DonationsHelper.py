@@ -18,7 +18,7 @@ class DonationsHelper(ConnectionHelper):
                 FROM doacoes d
                     INNER JOIN usuarios u ON u.id_usuario = d.id_doador
                     INNER JOIN usuarios ub ON ub.id_usuario = d.id_causa 
-                WHERE u.user_id = %s"""
+                WHERE u.id_usuario = %s"""
             
             params = (user_id,)
             
@@ -32,7 +32,7 @@ class DonationsHelper(ConnectionHelper):
                     ReceiverName=row[2],
                     Amount=row[3],
                     Message=row[4],
-                    Date=row[5]
+                    Date=str(row[5])
                 )
                 results.append(donation)
             return results
@@ -60,7 +60,7 @@ class DonationsHelper(ConnectionHelper):
                 FROM doacoes d
                     INNER JOIN usuarios u ON u.id_usuario = d.id_doador
                     INNER JOIN usuarios ub ON ub.id_usuario = d.id_causa 
-                WHERE ub.user_id = %s"""
+                WHERE ub.id_usuario = %s"""
             params = (receiver_id,)
             
             cursor.execute(query, params)
@@ -73,7 +73,7 @@ class DonationsHelper(ConnectionHelper):
                     ReceiverName=row[2],
                     Amount=row[3],
                     Message=row[4],
-                    Date=row[5]
+                    Date=str(row[5])
                 )
                 results.append(donation)
             return results
@@ -97,6 +97,8 @@ class DonationsHelper(ConnectionHelper):
             cursor.execute(query, params)
 
             connection.commit()
+
+            return {"message" : "Donation efetuated successfully"}
         except HTTPException:
             raise
         except Exception as e:

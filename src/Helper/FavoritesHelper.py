@@ -63,10 +63,17 @@ class FavoriteHelper(ConnectionHelper):
         
         try:
             cursor = connection.cursor()
-            cursor.execute("""SELECT u.nome, u.descricao, u.cep, u.documento 
-                            FROM favoritos f 
-                           INNER JOIN usuarios u ON f.id_favorito = u.id_usuario
-                           WHERE id_usuario = %s""", (user_id,))
+            cursor.execute("""SELECT 
+                        u.nome,
+                        u.descricao,
+                        u.cep,
+                        u.documento,
+                        f.id_usuario
+                    FROM favoritos f 
+                    INNER JOIN usuarios u 
+                        ON f.id_causa = u.id_usuario
+                    WHERE f.id_usuario = %s
+                    AND u.cep IS NOT NULL""", (user_id,))
             
             favorites: list[FavoriteModel] = []
             rows = cursor.fetchall()

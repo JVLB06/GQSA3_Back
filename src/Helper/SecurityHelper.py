@@ -1,6 +1,8 @@
 from fastapi import HTTPException, Request, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from src.Helper.TokenHelper import TokenHelper
+from src.Helper.SignInHelper import SignInHelper
+from src.Model.TokenModel import TokenModel
 
 # esquema HTTP Bearer para Swagger (cadeado)
 security_scheme = HTTPBearer()
@@ -72,4 +74,4 @@ async def get_current_user_from_token(
     if not user:
         raise HTTPException(status_code=401, detail="Token expired or invalid")
 
-    return user
+    return SignInHelper().GetKindOfUser(user)

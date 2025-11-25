@@ -7,6 +7,7 @@ from src.Helper.ReceiversHelper import ReceiversHelper
 from src.Helper.SecurityHelper import get_current_user_from_token
 from src.Helper.ConnectionHelper import ConnectionHelper 
 from src.Helper.SignInHelper import SignInHelper
+from src.Model.TokenModel import TokenModel
 from src.Helper.FavoritesHelper import FavoriteHelper  
 
 class DonatorController:
@@ -18,9 +19,9 @@ class DonatorController:
         return {"message": "Donator endpoint is working!"}
     
     @router.get("/list_receivers/{TypeOfOrder}")
-    async def list_receivers(TypeOfOrder: str, user: str = Depends(get_current_user_from_token)):
+    async def list_receivers(TypeOfOrder: str, user: TokenModel = Depends(get_current_user_from_token)):
         
-        if user != "doador":
+        if user.KindOfUser != "doador":
             raise HTTPException(status_code=403, detail="Unauthorized access: Only donators can access this endpoint")
         try:
             helper = ReceiversHelper()
@@ -30,19 +31,13 @@ class DonatorController:
             raise HTTPException(status_code=404, detail=f"Error fetching receivers: {e}")
 
     @router.post("/deactivate")
-    async def deactivate_donator(request: DeactivateModel, user_email: str = Depends(get_current_user_from_token)):
-        # Buscar dados do usuário logado via email (do token)
-        signin_helper = SignInHelper()
-        user_data = signin_helper.GetKindOfUser(user_email)
-        user_id = user_data.UserId
-        user_type = user_data.KindOfUser
-
+    async def deactivate_donator(request: DeactivateModel, user: TokenModel = Depends(get_current_user_from_token)):
         # Verificar se é doador ou admin
-        if user_type not in ['doador', 'admin']:
+        if user.KindOfUser not in ['doador', 'admin']:
             raise HTTPException(status_code=403, detail="Unauthorized: Only donators or admins can deactivate donators")
 
         # Se não for admin, só pode inativar si mesmo
-        if user_type != 'admin' and request.id_usuario != user_id:
+        if user.KindOfUser != 'admin' and request.id_usuario != user.UserId:
             raise HTTPException(status_code=403, detail="Unauthorized: You can only deactivate your own account")
 
         # Conectar ao banco e validar/inativar
@@ -73,50 +68,45 @@ class DonatorController:
             conn_helper.CloseConnection(connection)
 
     @router.post("/favorite/{cause_id}")
-    async def favorite_cause(cause_id: int, user_email: str = Depends(get_current_user_from_token)):
-        # Buscar dados do usuário logado via email (do token)
-        signin_helper = SignInHelper()
-        user_data = signin_helper.GetKindOfUser(user_email)
-    
-        if user_data.KindOfUser != 'doador':
+    async def favorite_cause(cause_id: int, user: TokenModel = Depends(get_current_user_from_token)):
+        if user.KindOfUser != 'doador':
             raise HTTPException(status_code=403, detail="Unauthorized: Only donators can favorite causes")
 
         receivers_helper = ReceiversHelper()
         if not receivers_helper.validate_cause_id(cause_id):
             raise HTTPException(status_code=404, detail="Cause not found or not active")
 
-        fav_info = AddFavoriteModel(CauseId=cause_id, UserId=user_data.UserId)
+        fav_info = AddFavoriteModel(CauseId=cause_id, UserId=user.UserId)
 
         return FavoriteHelper().add_favorite(fav_info)
 
     @router.delete("/favorite/{fav_id}")
-    async def remove_favorite(fav_id: int, user: str = Depends(get_current_user_from_token)):
-        if SignInHelper().GetKindOfUser(user) != "doador":
+    async def remove_favorite(fav_id: int, user: TokenModel = Depends(get_current_user_from_token)):
+        if user.KindOfUser != "doador":
             raise HTTPException(status_code=403, detail="Unauthorized: Only donators can remove favorites")
         
         return FavoriteHelper().remove_favorite(fav_id)
     
     @router.get("/favorites")
-    async def list_favorites(user_email: str = Depends(get_current_user_from_token)):
-        # Buscar dados do usuário logado via email (do token)
-        signin_helper = SignInHelper()
-        user_data = signin_helper.GetKindOfUser(user_email)
-    
-        if user_data.KindOfUser != 'doador':
+    async def list_favorites(user: TokenModel = Depends(get_current_user_from_token)):
+        if user.KindOfUser != 'doador':
             raise HTTPException(status_code=403, detail="Unauthorized: Only donators can view favorites")
 
-        return FavoriteHelper().list_favorites(user_data.UserId)
+        return FavoriteHelper().list_favorites(user.UserId)
     
     @router.post("/add_donation")
-    async def add_donation(donation_info: DonationModel, user_email: str = Depends(get_current_user_from_token)):
-        # Buscar dados do usuário logado via email (do token)
-        signin_helper = SignInHelper()
-        user_data = signin_helper.GetKindOfUser(user_email)
-    
-        if user_data.KindOfUser != 'doador':
+    async def add_donation(donation_info: DonationModel, user: TokenModel = Depends(get_current_user_from_token)):
+        if user.KindOfUser != 'doador':
             raise HTTPException(status_code=403, detail="Unauthorized: Only donators can add donations")
 
-        donation_info.DonorId = user_data.UserId
+        donation_info.DonorId = user.UserId
 
         donations_helper = DonationsHelper()
         return donations_helper.add_donations(donation_info)
+    
+    @router.get("/list_donations_made")
+    async def list_donations(user: TokenModel = Depends(get_current_user_from_token)):
+        if user.KindOfUser != "doador":
+            raise HTTPException(status_code=403, detail="Unauthorized: Only donators can list donations made")
+        
+        return DonationsHelper().list_donations_by_user(user.UserId)

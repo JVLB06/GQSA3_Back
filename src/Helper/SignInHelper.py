@@ -59,7 +59,7 @@ class SignInHelper(ConnectionHelper):
             raise HTTPException(status_code=500, detail="Database connection failed")
         
         cursor = connection.cursor()
-        query = "SELECT id_usuario, tipo_usuario FROM usuarios WHERE email = %s"
+        query = "SELECT id_usuario, tipo_usuario FROM usuarios WHERE email = %s AND ativo = true"
         cursor.execute(query, (email,))
         result = cursor.fetchone()
         cursor.close()

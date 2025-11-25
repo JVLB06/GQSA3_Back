@@ -3,12 +3,12 @@ from datetime import datetime
 from src.Model.PixModel import PixModel
 from src.Model.PixDeleteModel import PixDeleteModel
 from src.Model.DeactivateModel import DeactivateModel  
-from src.Model.DonationModel import DonationModel
 from src.Helper.DonationsHelper import DonationsHelper
 from src.Helper.PixHelper import PixHelper as ph
 from src.Helper.SecurityHelper import get_current_user_from_token
 from src.Helper.ConnectionHelper import ConnectionHelper  
 from src.Helper.SignInHelper import SignInHelper  
+from src.Model.TokenModel import TokenModel
 
 class ReceiverController:
     
@@ -20,9 +20,9 @@ class ReceiverController:
     
     @router.post("/add_pix_key")
     async def add_pix_key(request: PixModel,
-        user: str = Depends(get_current_user_from_token)):
+        user: TokenModel = Depends(get_current_user_from_token)):
         
-        if user != "recebedor":
+        if user.KindOfUser != "receptor":
             raise HTTPException(status_code=403, detail="Unauthorized access: Only receivers can access this endpoint")
         
         if not request.CreatedAt:
@@ -32,28 +32,22 @@ class ReceiverController:
     
     @router.delete("/delete_pix_key")
     async def delete_pix_key(request: PixDeleteModel,
-        user: str = Depends(get_current_user_from_token)):
+        user: TokenModel = Depends(get_current_user_from_token)):
 
-        if user != "recebedor":
+        if user.KindOfUser != "receptor":
             raise HTTPException(status_code=403, detail="Unauthorized access: Only receivers can access this endpoint")
         
         return {"message": ph().delete_pix_key(request)}
 
     # Novo endpoint para inativação de receptor
     @router.post("/deactivate")
-    async def deactivate_receiver(request: DeactivateModel, user_email: str = Depends(get_current_user_from_token)):
-        # Buscar dados do usuário logado via email (do token)
-        signin_helper = SignInHelper()
-        user_data = signin_helper.GetKindOfUser(user_email)
-        user_id = user_data.UserId
-        user_type = user_data.KindOfUser
-
+    async def deactivate_receiver(request: DeactivateModel, user: TokenModel = Depends(get_current_user_from_token)):
         # Verificar se é receptor ou admin
-        if user_type not in ['receptor', 'admin']:  # Nota: assumindo 'recebedor' como 'receptor' no enum
+        if user.KindOfUser not in ['receptor', 'admin']:  # Nota: assumindo 'receptor' como 'receptor' no enum
             raise HTTPException(status_code=403, detail="Unauthorized: Only receivers or admins can deactivate receivers")
 
         # Se não for admin, só pode inativar si mesmo
-        if user_type != 'admin' and request.id_usuario != user_id:
+        if user.KindOfUser != 'admin' and request.id_usuario != user.UserId:
             raise HTTPException(status_code=403, detail="Unauthorized: You can only deactivate your own account")
 
         # Conectar ao banco e validar/inativar
@@ -85,17 +79,13 @@ class ReceiverController:
             conn_helper.CloseConnection(connection)
 
     @router.get("/list_donations_received")
-    async def list_donations_received(user_email: str = Depends(get_current_user_from_token)):
-        # Buscar dados do usuário logado via email (do token)
-        signin_helper = SignInHelper()
-        user_data = signin_helper.GetKindOfUser(user_email)
-
-        if user_data.KindOfUser != 'receptor':
+    async def list_donations_received(user: TokenModel = Depends(get_current_user_from_token)):
+        if user.KindOfUser != 'receptor':
             raise HTTPException(status_code=403, detail="Unauthorized: Only receivers can access this endpoint")
 
         try:
             donations_helper = DonationsHelper()
-            donations = donations_helper.list_donations_received(user_data.UserId)
+            donations = donations_helper.list_donations_received(user.UserId)
             return {"donations": donations}
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error fetching donations: {e}")
