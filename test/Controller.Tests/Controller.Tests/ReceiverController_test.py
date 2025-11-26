@@ -5,13 +5,6 @@ from fastapi.testclient import TestClient
 from src.Controller.ReceiverController import ReceiverController
 from src.Helper.SecurityHelper import get_current_user_from_token
 
-from fastapi import FastAPI, Depends, HTTPException
-from fastapi.testclient import TestClient
-import pytest
-from typing import Callable, Any
-
-from src.Controller.ReceiverController import ReceiverController
-from src.Model.ProductModel import ProductModel
 
 # ===================== FAKES GENÉRICOS =====================
 
@@ -22,10 +15,14 @@ class FakeUserData:
         self.KindOfUser = kind_of_user
 
 
+def make_fake_user(user_id: int, kind_of_user: str) -> FakeUserData:
+    return FakeUserData(user_id, kind_of_user)
+
+
 class FakeCursor:
     def __init__(self):
-        self.to_fetch = []   # resultados que serão retornados por fetchone()
-        self.executed = []   # SQLs executados para conferência
+        self.to_fetch = []   # resultados retornados por fetchone()
+        self.executed = []   # SQLs executados p/ conferência
 
     def execute(self, sql, params=None):
         self.executed.append((sql, params))
@@ -95,17 +92,17 @@ def test_add_pix_key_success(monkeypatch):
     app = FastAPI()
     app.include_router(ReceiverController.router)
 
-    # endpoint exige user == "recebedor"
-    app.dependency_overrides[get_current_user_from_token] = lambda: "recebedor"
+    # Usuário logado: receptor
+    app.dependency_overrides[get_current_user_from_token] = (
+        lambda: make_fake_user(10, "receptor")
+    )
 
     client = TestClient(app)
 
-    # ⚠️ usa os campos da PixModel
     payload = {
         "UserId": 10,
         "PixKey": "teste@pix.com",
         "KeyType": "email",
-        # string vazia é aceita por Pydantic e cai no if not request.CreatedAt
         "CreatedAt": "",
     }
 
@@ -125,8 +122,11 @@ def test_add_pix_key_forbidden_if_not_receiver(monkeypatch):
 
     app = FastAPI()
     app.include_router(ReceiverController.router)
-    # usuário NÃO é recebedor
-    app.dependency_overrides[get_current_user_from_token] = lambda: "doador"
+
+    # usuário NÃO é receptor
+    app.dependency_overrides[get_current_user_from_token] = (
+        lambda: make_fake_user(10, "doador")
+    )
 
     client = TestClient(app)
 
@@ -158,11 +158,14 @@ def test_delete_pix_key_success(monkeypatch):
 
     app = FastAPI()
     app.include_router(ReceiverController.router)
-    app.dependency_overrides[get_current_user_from_token] = lambda: "recebedor"
+
+    # Usuário logado: receptor
+    app.dependency_overrides[get_current_user_from_token] = (
+        lambda: make_fake_user(10, "receptor")
+    )
 
     client = TestClient(app)
 
-    # ⚠️ usa os campos da PixDeleteModel
     payload = {
         "UserId": 10,
         "PixId": 123,
@@ -183,7 +186,11 @@ def test_delete_pix_key_forbidden_if_not_receiver(monkeypatch):
 
     app = FastAPI()
     app.include_router(ReceiverController.router)
-    app.dependency_overrides[get_current_user_from_token] = lambda: "doador"
+
+    # usuário NÃO é receptor
+    app.dependency_overrides[get_current_user_from_token] = (
+        lambda: make_fake_user(10, "doador")
+    )
 
     client = TestClient(app)
 
@@ -205,11 +212,6 @@ def test_delete_pix_key_forbidden_if_not_receiver(monkeypatch):
 
 
 def test_deactivate_receiver_success(monkeypatch):
-    # usuário logado: receptor id 10
-    class FakeSignInHelper:
-        def GetKindOfUser(self, email: str):
-            return FakeUserData(user_id=10, kind_of_user="receptor")
-
     cursor = FakeCursor()
     # SELECT retorna (ativo=True, tipo_usuario='receptor')
     cursor.to_fetch = [(True, "receptor")]
@@ -223,21 +225,20 @@ def test_deactivate_receiver_success(monkeypatch):
             conn.closed = True
 
     monkeypatch.setattr(
-        "src.Controller.ReceiverController.SignInHelper",
-        FakeSignInHelper,
-    )
-    monkeypatch.setattr(
         "src.Controller.ReceiverController.ConnectionHelper",
         FakeConnectionHelper,
     )
 
     app = FastAPI()
     app.include_router(ReceiverController.router)
-    app.dependency_overrides[get_current_user_from_token] = lambda: "receiver@example.com"
+
+    # usuário logado: receptor id 10
+    app.dependency_overrides[get_current_user_from_token] = (
+        lambda: make_fake_user(10, "receptor")
+    )
 
     client = TestClient(app)
 
-    # DeactivateModel: id_usuario (mesmo padrão que vc já usa pros outros)
     payload = {"id_usuario": 10}
 
     response = client.post("/receiver/deactivate", json=payload)
@@ -248,18 +249,13 @@ def test_deactivate_receiver_success(monkeypatch):
 
 
 def test_deactivate_receiver_forbidden_if_not_receiver_or_admin(monkeypatch):
-    class FakeSignInHelper:
-        def GetKindOfUser(self, email: str):
-            return FakeUserData(user_id=10, kind_of_user="doador")  # tipo inválido
-
-    monkeypatch.setattr(
-        "src.Controller.ReceiverController.SignInHelper",
-        FakeSignInHelper,
-    )
-
     app = FastAPI()
     app.include_router(ReceiverController.router)
-    app.dependency_overrides[get_current_user_from_token] = lambda: "user@example.com"
+
+    # usuário logado: doador (tipo inválido)
+    app.dependency_overrides[get_current_user_from_token] = (
+        lambda: make_fake_user(10, "doador")
+    )
 
     client = TestClient(app)
 
@@ -275,19 +271,13 @@ def test_deactivate_receiver_forbidden_if_not_receiver_or_admin(monkeypatch):
 
 
 def test_deactivate_receiver_forbidden_if_trying_to_deactivate_other_user(monkeypatch):
-    # usuário logado: receptor id 10, tentando desativar 99
-    class FakeSignInHelper:
-        def GetKindOfUser(self, email: str):
-            return FakeUserData(user_id=10, kind_of_user="receptor")
-
-    monkeypatch.setattr(
-        "src.Controller.ReceiverController.SignInHelper",
-        FakeSignInHelper,
-    )
-
     app = FastAPI()
     app.include_router(ReceiverController.router)
-    app.dependency_overrides[get_current_user_from_token] = lambda: "user@example.com"
+
+    # usuário logado: receptor id 10
+    app.dependency_overrides[get_current_user_from_token] = (
+        lambda: make_fake_user(10, "receptor")
+    )
 
     client = TestClient(app)
 
@@ -300,11 +290,6 @@ def test_deactivate_receiver_forbidden_if_trying_to_deactivate_other_user(monkey
 
 
 def test_deactivate_receiver_user_not_found_or_inactive(monkeypatch):
-    # admin logado, mas usuário não existe / já inativo
-    class FakeSignInHelper:
-        def GetKindOfUser(self, email: str):
-            return FakeUserData(user_id=1, kind_of_user="admin")
-
     cursor = FakeCursor()
     cursor.to_fetch = [None]  # SELECT não encontrou usuário
     connection = FakeConnection(cursor)
@@ -317,63 +302,27 @@ def test_deactivate_receiver_user_not_found_or_inactive(monkeypatch):
             conn.closed = True
 
     monkeypatch.setattr(
-        "src.Controller.ReceiverController.SignInHelper",
-        FakeSignInHelper,
-    )
-    monkeypatch.setattr(
         "src.Controller.ReceiverController.ConnectionHelper",
         FakeConnectionHelper,
     )
 
     app = FastAPI()
     app.include_router(ReceiverController.router)
-    app.dependency_overrides[get_current_user_from_token] = lambda: "admin@example.com"
+
+    # admin logado
+    app.dependency_overrides[get_current_user_from_token] = (
+        lambda: make_fake_user(1, "admin")
+    )
 
     client = TestClient(app)
 
     payload = {"id_usuario": 99}
 
     response = client.post("/receiver/deactivate", json=payload)
-
-    # ⚠️ Se o seu controller ainda estiver com `except Exception` engolindo HTTPException,
-    # isso pode retornar 500. O ideal é ter:
-    #   except HTTPException: raise
-    #   except Exception as e: ...
     assert response.status_code == 404
     data = response.json()
     assert data["detail"] == "User not found or already inactive"
 
-
-
-class MockUser:
-    """Simula o objeto retornado por SignInHelper.GetKindOfUser."""
-    def __init__(self, kind_of_user: str, user_id: int):
-        self.KindOfUser = kind_of_user
-        self.UserId = user_id
-
-
-
-@pytest.fixture(scope="module") 
-def app_client():
-    """Cria e retorna o TestClient para a aplicação FastAPI."""
-    app = FastAPI()
-    app.include_router(ReceiverController.router)
-    return TestClient(app)
-
-@pytest.fixture
-def product_data():
-    """Dados de produto válidos para a criação/atualização."""
-    return {
-        "name": "Bola de Futebol",
-        "description": "Bola para doação",
-        "value": 120.00
-    }
-
-def create_mock_get_kind_of_user(user_type: str, user_id: int) -> Callable[[Any], MockUser]:
-   
-    def mock_func(user_email: str) -> MockUser:
-        return MockUser(kind_of_user=user_type, user_id=user_id)
-    return mock_func
 
 # ===================== /receiver/create_product =====================
 
@@ -389,7 +338,6 @@ def test_create_product_success(monkeypatch):
             # simulamos que o helper retorna o ID do produto
             return 123
 
-    # Monkeypatch da classe ProductHelper dentro do ReceiverController
     monkeypatch.setattr(
         "src.Controller.ReceiverController.ProductHelper",
         FakeProductHelper,
@@ -397,8 +345,11 @@ def test_create_product_success(monkeypatch):
 
     app = FastAPI()
     app.include_router(ReceiverController.router)
-    # Usuário logado é recebedor
-    app.dependency_overrides[get_current_user_from_token] = lambda: "recebedor"
+
+    # Usuário logado é receptor
+    app.dependency_overrides[get_current_user_from_token] = (
+        lambda: make_fake_user(10, "receptor")
+    )
 
     client = TestClient(app)
 
@@ -419,7 +370,7 @@ def test_create_product_success(monkeypatch):
 def test_create_product_forbidden_if_not_receiver(monkeypatch):
     class FakeProductHelper:
         def create_product(self, product):
-            pytest.fail("Não deveria chamar o helper se não for recebedor")
+            pytest.fail("Não deveria chamar o helper se não for receptor")
 
     monkeypatch.setattr(
         "src.Controller.ReceiverController.ProductHelper",
@@ -428,8 +379,11 @@ def test_create_product_forbidden_if_not_receiver(monkeypatch):
 
     app = FastAPI()
     app.include_router(ReceiverController.router)
-    # Usuário NÃO é recebedor
-    app.dependency_overrides[get_current_user_from_token] = lambda: "doador"
+
+    # Usuário NÃO é receptor
+    app.dependency_overrides[get_current_user_from_token] = (
+        lambda: make_fake_user(10, "doador")
+    )
 
     client = TestClient(app)
 
@@ -452,8 +406,7 @@ def test_create_product_forbidden_if_not_receiver(monkeypatch):
 def test_create_product_internal_error_when_helper_returns_falsy(monkeypatch):
     class FakeProductHelper:
         def create_product(self, product):
-            # simula falha silenciosa no helper
-            return None
+            return None  # simula falha silenciosa no helper
 
     monkeypatch.setattr(
         "src.Controller.ReceiverController.ProductHelper",
@@ -462,7 +415,10 @@ def test_create_product_internal_error_when_helper_returns_falsy(monkeypatch):
 
     app = FastAPI()
     app.include_router(ReceiverController.router)
-    app.dependency_overrides[get_current_user_from_token] = lambda: "recebedor"
+
+    app.dependency_overrides[get_current_user_from_token] = (
+        lambda: make_fake_user(10, "receptor")
+    )
 
     client = TestClient(app)
 
@@ -478,15 +434,15 @@ def test_create_product_internal_error_when_helper_returns_falsy(monkeypatch):
     data = response.json()
     assert data["detail"] == "Failed to create product"
 
+
 # ===================== /receiver/delete_product =====================
 
 
 def test_delete_product_success(monkeypatch):
     class FakeProductHelper:
         def delete_product(self, request):
-            # garante que o ProductId veio correto
             assert request.ProductId == 99
-            return True  # simula exclusão bem-sucedida
+            return True  # exclusão bem-sucedida
 
     monkeypatch.setattr(
         "src.Controller.ReceiverController.ProductHelper",
@@ -495,7 +451,10 @@ def test_delete_product_success(monkeypatch):
 
     app = FastAPI()
     app.include_router(ReceiverController.router)
-    app.dependency_overrides[get_current_user_from_token] = lambda: "recebedor"
+
+    app.dependency_overrides[get_current_user_from_token] = (
+        lambda: make_fake_user(10, "receptor")
+    )
 
     client = TestClient(app)
 
@@ -503,14 +462,13 @@ def test_delete_product_success(monkeypatch):
 
     response = client.request("DELETE", "/receiver/delete_product", json=payload)
     assert response.status_code == 200
-    # o endpoint retorna diretamente o bool do helper
     assert response.json() is True
 
 
 def test_delete_product_forbidden_if_not_receiver(monkeypatch):
     class FakeProductHelper:
         def delete_product(self, request):
-            pytest.fail("Não deveria ser chamado se usuário não é recebedor")
+            pytest.fail("Não deveria ser chamado se usuário não é receptor")
 
     monkeypatch.setattr(
         "src.Controller.ReceiverController.ProductHelper",
@@ -519,7 +477,10 @@ def test_delete_product_forbidden_if_not_receiver(monkeypatch):
 
     app = FastAPI()
     app.include_router(ReceiverController.router)
-    app.dependency_overrides[get_current_user_from_token] = lambda: "admin"
+
+    app.dependency_overrides[get_current_user_from_token] = (
+        lambda: make_fake_user(10, "admin")
+    )
 
     client = TestClient(app)
 
@@ -533,13 +494,13 @@ def test_delete_product_forbidden_if_not_receiver(monkeypatch):
         == "Unauthorized access: Only receivers can delete products"
     )
 
+
 # ===================== /receiver/get_products =====================
 
 
 def test_get_products_success(monkeypatch):
     class FakeProductHelper:
         def list_products(self, UserId: int | None = None):
-            # aqui não estamos filtrando por usuário no controller, então UserId deve ser None
             assert UserId is None
             return [
                 {
@@ -565,7 +526,10 @@ def test_get_products_success(monkeypatch):
 
     app = FastAPI()
     app.include_router(ReceiverController.router)
-    app.dependency_overrides[get_current_user_from_token] = lambda: "recebedor"
+
+    app.dependency_overrides[get_current_user_from_token] = (
+        lambda: make_fake_user(10, "receptor")
+    )
 
     client = TestClient(app)
 
@@ -581,7 +545,7 @@ def test_get_products_success(monkeypatch):
 def test_get_products_forbidden_if_not_receiver(monkeypatch):
     class FakeProductHelper:
         def list_products(self, UserId: int | None = None):
-            pytest.fail("Não deveria ser chamado se usuário não é recebedor")
+            pytest.fail("Não deveria ser chamado se usuário não é receptor")
 
     monkeypatch.setattr(
         "src.Controller.ReceiverController.ProductHelper",
@@ -590,7 +554,10 @@ def test_get_products_forbidden_if_not_receiver(monkeypatch):
 
     app = FastAPI()
     app.include_router(ReceiverController.router)
-    app.dependency_overrides[get_current_user_from_token] = lambda: "doador"
+
+    app.dependency_overrides[get_current_user_from_token] = (
+        lambda: make_fake_user(10, "doador")
+    )
 
     client = TestClient(app)
 
